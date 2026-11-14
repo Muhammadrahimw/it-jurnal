@@ -53,7 +53,12 @@ textarea{resize:vertical;min-height:110px;line-height:1.5}
 .stats{display:flex;flex-direction:column;gap:10px}
 .stat-line{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13.5px;color:var(--muted)}
 .stat-line b{font-family:var(--f-num);color:var(--ink);font-weight:700}
-.bulk{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bulk{display:grid;grid-template-columns:1fr;gap:8px}
+.bad{color:var(--bad);font-weight:700}
+.pill i{font-style:normal;letter-spacing:-1px;margin-right:5px;font-size:9px;vertical-align:1px}
+.pill.lv1{background:color-mix(in srgb,var(--gold) 14%,transparent);border-color:var(--gold);color:var(--gold)}
+.pill.lv2{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.pill.lv3{background:var(--bad);border-color:var(--bad);color:var(--surface)}
 .bulk .btn{padding:10px 8px}
 .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 13px var(--f-body);padding:8px 12px;border-radius:9px;cursor:pointer}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -156,9 +161,9 @@ const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const coll=new Intl.Collator("en",{numeric:true,ignorePunctuation:true,sensitivity:"base"});
 const clone=o=>JSON.parse(JSON.stringify(o));
 
-const S={view:"dars",classId:null,date:today(),month:today().slice(0,7),loaded:false};
+const S={view:"dars",classId:null,date:today(),n:1,month:today().slice(0,7),loaded:false};
 const classes=new Map(), lessons=new Map();
-let settings={wW:25,wS:60,wA:15};
+let settings={wW:30,wS:70,wP:5};
 let db=null, armed=null, mode="cloud", pendingImport=null, lastSlot=null;
 const LS="it-jurnal-data-v1";
 /* Haftalik dars jadvali (Google Kalendardan). getDay(): 2=Seshanba … 5=Juma */
@@ -171,11 +176,12 @@ const SCHEDULE={
 const toMin=t=>{const [h,m]=t.split(":");return +h*60+ +m};
 const todaySlots=()=>SCHEDULE[new Date().getDay()]||[];
 function currentSlot(){const d=new Date(),m=d.getHours()*60+d.getMinutes();return todaySlots().filter(([a,b])=>m>=toMin(a)&&m<toMin(b)+5).pop()}
+const slotN=sl=>todaySlots().filter(x=>x[2]===sl[2]).indexOf(sl)+1||1;
 function autoPick(){
   if(S.date!==today())return false;
   const sl=currentSlot(),key=sl?sl.join():null;
   if(!key){lastSlot=null;return false}
-  if(key!==lastSlot&&classes.has(sl[2])){lastSlot=key;S.classId=sl[2];return true}
+  if(key!==lastSlot&&classes.has(sl[2])){lastSlot=key;S.classId=sl[2];S.n=slotN(sl);return true}
   return false;
 }
 function persistLocal(){
@@ -212,15 +218,20 @@ const dirty=path=>!!(timers[path]||busy[path]);
 /* ---------- data helpers ---------- */
 function sortedClasses(){return [...classes.values()].sort((a,b)=>coll.compare(a.name,b.name))}
 function students(c){return [...(c?.students||[])].sort((a,b)=>coll.compare(a.name,b.name))}
-const lessonId=(cid,date)=>cid+"_"+date;
+const lessonId=(cid,date,n)=>cid+"_"+date+((n||1)>1?"_"+n:"");
+const lnum=l=>l.n||1;
+/* Intizom darajalari: har bosishda keyingisiga o'tadi */
+const LEVELS=["","Ogohlantirish","Jiddiy","Qo'pol"];
+const lvl=m=>Math.min(3,Math.max(0,+m.d||0));
+const byDate=(a,b)=>a.date.localeCompare(b.date)||lnum(a)-lnum(b);
 function getLesson(create){
-  const id=lessonId(S.classId,S.date);
-  if(!lessons.has(id)&&create)lessons.set(id,{classId:S.classId,date:S.date,topic:"",marks:{}});
+  const id=lessonId(S.classId,S.date,S.n);
+  if(!lessons.has(id)&&create)lessons.set(id,{classId:S.classId,date:S.date,n:S.n,topic:"",marks:{}});
   return lessons.get(id);
 }
 const isEmptyLesson=l=>!l||(!String(l.topic||"").trim()&&!Object.values(l.marks||{}).some(m=>m&&Object.keys(m).length));
 function saveLesson(){
-  const id=lessonId(S.classId,S.date);
+  const id=lessonId(S.classId,S.date,S.n);
   queue("lessons/"+id,()=>{const l=lessons.get(id);if(!l)return null;
     Object.keys(l.marks||{}).forEach(k=>{if(!Object.keys(l.marks[k]).length)delete l.marks[k]});
     return isEmptyLesson(l)?null:l});
@@ -246,12 +257,13 @@ function renderDars(){
   const L=getLesson(false);
   const slots=S.date===today()?todaySlots():[], cur=currentSlot();
   main.innerHTML=`<div class="wrap">
-    ${slots.length?`<div class="today"><span class="label">Bugungi jadval</span><div class="chips">${slots.map(sl=>`<button class="chip slot${cur===sl?" now":""}" data-act="pick-class" data-id="${sl[2]}" aria-pressed="${sl[2]===S.classId&&cur===sl}"><span>${sl[0]}</span> ${esc(classes.get(sl[2])?.name||"?")}</button>`).join("")}</div></div>`:""}
+    ${slots.length?`<div class="today"><span class="label">Bugungi jadval</span><div class="chips">${slots.map(sl=>`<button class="chip slot${cur===sl?" now":""}" data-act="pick-class" data-id="${sl[2]}" data-n="${slotN(sl)}" aria-pressed="${sl[2]===S.classId&&cur===sl}"><span>${sl[0]}</span> ${esc(classes.get(sl[2])?.name||"?")}</button>`).join("")}</div></div>`:""}
     ${classChips()}
     <div class="lesson-head">
       <input type="date" id="date" value="${S.date}" aria-label="Dars sanasi">
       <input type="text" id="topic" placeholder="Dars mavzusi (masalan: HTML jadvallar)" value="${esc(L?.topic||"")}" aria-label="Dars mavzusi">
     </div>
+    <div class="chips" id="lessonSlots" role="group" aria-label="Shu kundagi dars"></div>
     <div class="stats" id="stats"></div>
     <ol class="roster" id="roster"></ol>
     <form class="add" id="addStu" autocomplete="off">
@@ -268,42 +280,49 @@ function renderRoster(){
   const roster=document.getElementById("roster");if(!roster)return;
   roster.innerHTML=list.length?list.map((s,i)=>{
     const m=M[s.id]||{};
-    return `<li class="row${m.a?" absent":""}" data-sid="${s.id}">
+    return `<li class="row" data-sid="${s.id}">
       <span class="num">${i+1}</span><span class="name">${esc(s.name)}</span>
-      <button class="pill ${m.a?"off":""}" data-act="absent">${m.a?"Kelmadi":"Keldi"}</button>
-      <button class="pill ${m.w?"on":""}" data-act="wrote" aria-pressed="${!!m.w}">${m.w?"✓ Yozdi":"Yozdi?"}</button>
+      <button class="pill lv${lvl(m)}" data-act="disrupt" aria-label="Intizom: ${LEVELS[lvl(m)]||"qoidabuzarlik yo'q"}. Keyingi darajaga o'tkazish">${lvl(m)?`<i>${"●".repeat(lvl(m))}</i>${LEVELS[lvl(m)]}`:"Intizom"}</button>
+      <button class="pill ${m.w?"on":""}" data-act="wrote" aria-pressed="${!!m.w}">${m.w?"✓ Konspekt":"Konspekt"}</button>
       <div class="scores" style="--n:${n}">${Array.from({length:n},(_,k)=>k+1).map(v=>`<button class="sc${m.s===v?" on":""}" data-act="score" data-v="${v}" aria-label="${v} ball">${v}</button>`).join("")}</div>
     </li>`}).join(""):`<li class="row"><span></span><span class="name" style="color:var(--muted)">Bu sinfda hali o'quvchi yo'q — pastdan qo'shing.</span></li>`;
   // stats
-  const present=list.filter(s=>!M[s.id]?.a), wrote=present.filter(s=>M[s.id]?.w).length;
-  const sc=present.map(s=>M[s.id]?.s).filter(v=>typeof v==="number");
+  const wrote=list.filter(s=>M[s.id]?.w).length, dis=list.filter(s=>M[s.id]?.d).length;
+  const sc=list.map(s=>M[s.id]?.s).filter(v=>typeof v==="number");
   const avg=sc.length?(sc.reduce((a,b)=>a+b,0)/sc.length).toFixed(1):"—";
-  document.getElementById("stats").innerHTML=`<div class="stat-line"><span>Keldi <b>${present.length}/${list.length}</b></span><span>Yozdi <b>${wrote}/${present.length}</b></span><span>O'rtacha <b>${avg}</b> / ${n}</span></div>
-    <div class="bulk"><button class="btn" data-act="all-present">Hammasi keldi</button><button class="btn" data-act="all-wrote">Hammasi yozdi</button></div>`;
+  document.getElementById("stats").innerHTML=`<div class="stat-line"><span>Konspekt <b>${wrote}/${list.length}</b></span><span>O'rtacha baho <b>${avg}</b> / ${n}</span>${dis?`<span>Intizom <b class="bad">${dis}</b></span>`:""}</div>
+    <div class="bulk"><button class="btn" data-act="all-wrote">${list.length&&wrote===list.length?"Konspekt belgilarini olib tashlash":"Barchasiga konspekt belgilash"}</button></div>`;
+  // lessons on this day
+  const nums=[...new Set([...lessons.values()].filter(l=>l.classId===S.classId&&l.date===S.date&&!isEmptyLesson(l)).map(lnum).concat(S.n))].sort((a,b)=>a-b);
+  document.getElementById("lessonSlots").innerHTML=nums.map(k=>`<button class="chip" data-act="pick-n" data-n="${k}" aria-pressed="${k===S.n}">${k}-dars</button>`).join("")+
+    `<button class="chip ghost" data-act="pick-n" data-n="${Math.max(...nums)+1}">+ Qo'shimcha dars</button>`;
   // month lessons
   const ym=S.date.slice(0,7);
-  const ms=[...lessons.values()].filter(l=>l.classId===S.classId&&l.date.startsWith(ym)&&!isEmptyLesson(l)).sort((a,b)=>b.date.localeCompare(a.date));
+  const ms=[...lessons.values()].filter(l=>l.classId===S.classId&&l.date.startsWith(ym)&&!isEmptyLesson(l)).sort((a,b)=>byDate(b,a));
   const ml=document.getElementById("monthLessons");
-  ml.innerHTML=ms.length?ms.map(l=>`<button class="chip mchip" data-act="pick-date" data-v="${l.date}" aria-pressed="${l.date===S.date}"><span>${l.date.slice(8)}.${l.date.slice(5,7)}</span><em>${esc(l.topic||"mavzusiz")}</em></button>`).join(""):`<span class="note">Bu oyda hali baholangan dars yo'q.</span>`;
+  ml.innerHTML=ms.length?ms.map(l=>`<button class="chip mchip" data-act="pick-date" data-v="${l.date}" data-n="${lnum(l)}" aria-pressed="${l.date===S.date&&lnum(l)===S.n}"><span>${l.date.slice(8)}.${l.date.slice(5,7)}${lnum(l)>1?" · "+lnum(l)+"-dars":""}</span><em>${esc(l.topic||"mavzusiz")}</em></button>`).join(""):`<span class="note">Bu oyda hali baholangan dars yo'q.</span>`;
 }
 
 /* ---------- rating ---------- */
 function computeRating(c,ym){
   const n=c.scale||5;
   const ls=[...lessons.values()].filter(l=>l.classId===c.id&&l.date.startsWith(ym)&&!isEmptyLesson(l));
-  const W=Math.max(1,(+settings.wW||0)+(+settings.wS||0)+(+settings.wA||0));
+  const wW=+settings.wW||0, wS=+settings.wS||0, wP=+(settings.wP??5)||0, W=Math.max(1,wW+wS);
   const rows=students(c).map(s=>{
-    let held=0,present=0,wrote=0,ptsSum=0,ptsCnt=0;
+    let held=0,wrote=0,dis=0,pts=0,ptsSum=0,ptsCnt=0;
     for(const l of ls){
-      const M=l.marks||{};held++;
-      const m=M[s.id]||{};if(m.a)continue;present++;
+      const M=l.marks||{}, m=M[s.id]||{};
+      if(m.a)continue; // eski yozuvlardagi "kelmadi" belgisi
+      held++;
       if(m.w)wrote++;
+      if(lvl(m)){dis++;pts+=lvl(m)}
       const taskGiven=Object.values(M).some(x=>typeof x.s==="number");
       if(taskGiven){ptsCnt++;ptsSum+=typeof m.s==="number"?m.s:0}
     }
-    const att=held?present/held:0, wr=present?wrote/present:0, sc=ptsCnt?ptsSum/ptsCnt/n:0;
-    const total=held?((+settings.wW)*wr+(+settings.wS)*sc+(+settings.wA)*att)/W*100:0;
-    return {s,held,present,wrote,avg:ptsCnt?ptsSum/ptsCnt:null,att,total};
+    const wr=held?wrote/held:0, sc=ptsCnt?ptsSum/ptsCnt/n:0;
+    const base=held?(wW*wr+wS*sc)/W*100:0;
+    const total=Math.max(0,base-wP*pts);
+    return {s,held,wrote,dis,pts,avg:ptsCnt?ptsSum/ptsCnt:null,base,total};
   }).sort((a,b)=>b.total-a.total||coll.compare(a.s.name,b.s.name));
   return {rows,count:ls.length,n};
 }
@@ -317,13 +336,14 @@ function renderReyting(){
     ${classChips()}
     <div class="row2"><input type="month" id="month" value="${S.month}" style="max-width:200px" aria-label="Oy"><span class="note">${monthLabel(S.month)} · <b>${R.count}</b> ta dars</span></div>
     ${R.count&&R.rows.length?`<div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>O'quvchi</th><th>Davomat</th><th>Yozgan</th><th>O'rt. ball</th><th>Umumiy</th><th>Baho</th></tr></thead>
+      <thead><tr><th>#</th><th>O'quvchi</th><th>Umumiy</th><th>Baho</th><th>Konspekt</th><th>Vazifa (o'rt.)</th><th>Intizom</th></tr></thead>
       <tbody>${R.rows.map((r,i)=>`<tr class="${i<3&&r.total>0?"top"+(i+1):""}">
         <td><span class="rank">${i+1}</span></td><td>${esc(r.s.name)}</td>
-        <td>${r.present}/${r.held}</td><td>${r.wrote}/${r.present}</td>
-        <td>${r.avg==null?"—":r.avg.toFixed(1)+"/"+R.n}</td>
         <td class="total">${Math.round(r.total)}%</td>
-        <td><span class="grade g${grade(r.total)}">${grade(r.total)}</span></td></tr>`).join("")}</tbody></table></div>
+        <td><span class="grade g${grade(r.total)}">${grade(r.total)}</span></td>
+        <td>${r.wrote}/${r.held}</td>
+        <td>${r.avg==null?"—":r.avg.toFixed(1)+"/"+R.n}</td>
+        <td>${r.dis?`<span class="bad" title="${r.dis} ta holat, jami ${r.pts} daraja">${r.dis}× · −${Math.round(r.base-r.total)}%</span>`:"—"}</td></tr>`).join("")}</tbody></table></div>
       <div class="row2"><button class="btn primary" data-act="copy">Telegram uchun nusxalash</button></div>`
     :`<div class="empty"><h2>Bu oy uchun ma'lumot yo'q</h2><p>${esc(c.name)} sinfida ${monthLabel(S.month)} oyida baholangan dars topilmadi. "Dars" bo'limida baholang — reyting shu yerda o'zi yig'iladi.</p></div>`}
     <div class="card backup">
@@ -338,11 +358,11 @@ function renderReyting(){
     <div class="card">
       <span class="label">Umumiy foiz qanday hisoblanadi</span>
       <div class="weights">
-        <label>Mavzu yozgani<input type="number" min="0" max="100" id="wW" value="${settings.wW}"></label>
-        <label>Vazifa bali<input type="number" min="0" max="100" id="wS" value="${settings.wS}"></label>
-        <label>Davomat<input type="number" min="0" max="100" id="wA" value="${settings.wA}"></label>
+        <label>Konspekt ulushi<input type="number" min="0" max="100" id="wW" value="${settings.wW}"></label>
+        <label>Amaliy vazifa ulushi<input type="number" min="0" max="100" id="wS" value="${settings.wS}"></label>
+        <label>Intizom: 1 daraja = −%<input type="number" min="0" max="100" id="wP" value="${settings.wP??5}"></label>
       </div>
-      <p class="note">Har bir ko'rsatkich foizga aylantiriladi va shu ulushlar bo'yicha qo'shiladi. Vazifa berilgan darsda kelib, ball olmagan o'quvchiga 0 hisoblanadi; vazifa berilmagan dars ballga ta'sir qilmaydi. Baho: 86%+ → 5, 71%+ → 4, 56%+ → 3.</p>
+      <p class="note">Konspekt va amaliy vazifa natijasi foizga aylantirilib, shu ulushlar bo'yicha qo'shiladi. Intizom buzilishi darajasiga qarab ayriladi: Ogohlantirish — 1 baravar, Jiddiy — 2 baravar, Qo'pol — 3 baravar (5% bo'lsa: −5%, −10%, −15%). Natija 0% dan pastga tushmaydi. Vazifa berilgan darsda ball olmagan o'quvchiga 0 hisoblanadi; vazifa berilmagan dars ballga ta'sir qilmaydi. Baho: 86%+ → 5, 71%+ → 4, 56%+ → 3.</p>
     </div>
   </div>`;
 }
@@ -384,8 +404,9 @@ main.addEventListener("click",e=>{
   const b=e.target.closest("[data-act]");if(!b)return;
   const act=b.dataset.act;
   if(act==="go"){S.view=b.dataset.v;render();return}
-  if(act==="pick-class"){S.classId=b.dataset.id;render();return}
-  if(act==="pick-date"){S.date=b.dataset.v;render();return}
+  if(act==="pick-class"){S.classId=b.dataset.id;S.n=+b.dataset.n||1;render();return}
+  if(act==="pick-date"){S.date=b.dataset.v;S.n=+b.dataset.n||1;render();return}
+  if(act==="pick-n"){S.n=+b.dataset.n||1;render();return}
   if(act==="export"){exportExcel(b);return}
   if(act==="import-no"){pendingImport=null;renderReyting();return}
   if(act==="import-yes"){applyImport();return}
@@ -394,17 +415,17 @@ main.addEventListener("click",e=>{
   const row=b.closest(".row[data-sid]");
   if(row){
     const L=getLesson(true), sid=row.dataset.sid, m=L.marks[sid]||(L.marks[sid]={});
-    if(act==="absent"){m.a=m.a?0:1;if(m.a){delete m.w;delete m.s}}
-    if(act==="wrote"){m.w=m.w?0:1;if(m.w)m.a=0}
-    if(act==="score"){const v=+b.dataset.v;if(m.s===v)delete m.s;else{m.s=v;m.a=0}}
+    delete m.a;
+    if(act==="disrupt"){const v=(lvl(m)+1)%4;if(v)m.d=v;else delete m.d}
+    if(act==="wrote")m.w=m.w?0:1;
+    if(act==="score"){const v=+b.dataset.v;if(m.s===v)delete m.s;else m.s=v}
     Object.keys(m).forEach(k=>{if(!m[k]&&m[k]!==undefined)delete m[k]});
     saveLesson();renderRoster();return;
   }
-  if(act==="all-present"||act==="all-wrote"){
+  if(act==="all-wrote"){
     const c=classes.get(S.classId),L=getLesson(true),list=students(c);
-    if(act==="all-present")list.forEach(s=>{if(L.marks[s.id])delete L.marks[s.id].a});
-    else{const pres=list.filter(s=>!L.marks[s.id]?.a);const all=pres.every(s=>L.marks[s.id]?.w);
-      pres.forEach(s=>{const m=L.marks[s.id]||(L.marks[s.id]={});if(all)delete m.w;else m.w=1})}
+    const all=list.every(s=>L.marks[s.id]?.w);
+    list.forEach(s=>{const m=L.marks[s.id]||(L.marks[s.id]={});delete m.a;if(all)delete m.w;else m.w=1});
     saveLesson();renderRoster();return;
   }
   const card=b.closest("[data-cid]");
@@ -426,10 +447,10 @@ main.addEventListener("click",e=>{
 });
 main.addEventListener("change",e=>{
   const t=e.target;
-  if(t.id==="date"&&t.value){S.date=t.value;render()}
+  if(t.id==="date"&&t.value){S.date=t.value;S.n=1;render()}
   if(t.id==="month"&&t.value){S.month=t.value;render()}
   if((t.id==="importFile"||t.id==="importFile0")&&t.files[0]){readImport(t.files[0]);t.value=""}
-  if(["wW","wS","wA"].includes(t.id)){settings[t.id]=Math.max(0,Math.min(100,+t.value||0));saveSettings();renderReyting()}
+  if(["wW","wS","wP"].includes(t.id)){settings[t.id]=Math.max(0,Math.min(100,+t.value||0));saveSettings();renderReyting()}
   if(t.dataset.act==="rename-stu"){const c=classes.get(t.closest("[data-cid]").dataset.cid);const s=c?.students.find(x=>x.id===t.dataset.sid);const v=t.value.replace(/\s+/g," ").trim();
     if(s&&v&&v!==s.name){s.name=v;saveClass(c);t.closest(".stu-row").classList.toggle("unsure",/\?/.test(v));toast("Saqlandi: "+v)}else if(s&&!v)t.value=s.name}
   if(t.dataset.act==="rename"){const c=classes.get(t.closest("[data-cid]").dataset.cid);const v=t.value.trim();if(c&&v){c.name=v;saveClass(c)}}
@@ -461,26 +482,26 @@ async function exportExcel(btn){
   try{
     const wb=XLSX.utils.book_new(), cls=sortedClasses();
     // 1. Reyting (tanlangan oy, barcha sinflar)
-    const rRows=[["Sinf","O'rin","O'quvchi","Darslar","Keldi","Yozgan","O'rtacha ball","Umumiy %","Baho"]];
-    cls.forEach(c=>{const R=computeRating(c,S.month);R.rows.forEach((r,i)=>rRows.push([c.name,i+1,r.s.name,r.held,r.present,r.wrote,r.avg==null?"":+r.avg.toFixed(2),Math.round(r.total),R.count?grade(r.total):""]))});
+    const rRows=[["Sinf","O'rin","O'quvchi","Umumiy %","Baho","Darslar","Konspekt","Vazifa (o'rtacha)","Intizom holatlari","Intizom (−%)"]];
+    cls.forEach(c=>{const R=computeRating(c,S.month);R.rows.forEach((r,i)=>rRows.push([c.name,i+1,r.s.name,Math.round(r.total),R.count?grade(r.total):"",r.held,r.wrote,r.avg==null?"":+r.avg.toFixed(2),r.dis||"",r.dis?Math.round(r.base-r.total):""]))});
     const wsR=XLSX.utils.aoa_to_sheet([["Reyting — "+monthLabel(S.month)],[],...rRows]);
-    wsR["!cols"]=[{wch:8},{wch:6},{wch:28},{wch:8},{wch:7},{wch:8},{wch:13},{wch:10},{wch:6}];
+    wsR["!cols"]=[{wch:8},{wch:6},{wch:28},{wch:10},{wch:6},{wch:8},{wch:9},{wch:15},{wch:16},{wch:12}];
     XLSX.utils.book_append_sheet(wb,wsR,"Reyting");
     // 2. Har bir sinf: jurnal ko'rinishi (o'quvchi × sana)
     cls.forEach(c=>{
-      const ls=[...lessons.values()].filter(l=>l.classId===c.id&&!isEmptyLesson(l)).sort((a,b)=>a.date.localeCompare(b.date));
-      const head=["№","O'quvchi",...ls.map(l=>l.date.slice(8)+"."+l.date.slice(5,7))];
+      const ls=[...lessons.values()].filter(l=>l.classId===c.id&&!isEmptyLesson(l)).sort(byDate);
+      const head=["№","O'quvchi",...ls.map(l=>l.date.slice(8)+"."+l.date.slice(5,7)+(lnum(l)>1?" ("+lnum(l)+")":""))];
       const topics=["","Mavzu",...ls.map(l=>l.topic||"")];
-      const body=students(c).map((s,i)=>[i+1,s.name,...ls.map(l=>{const m=(l.marks||{})[s.id]||{};if(m.a)return "K";return (typeof m.s==="number"?String(m.s):"")+(m.w?"✓":"")})]);
-      const ws=XLSX.utils.aoa_to_sheet([[c.name+" — "+(c.scale||5)+" ballik tizim.  ✓ = mavzuni yozdi, K = kelmadi"],head,topics,...body]);
-      ws["!cols"]=[{wch:4},{wch:28},...ls.map(()=>({wch:7}))];
+      const body=students(c).map((s,i)=>[i+1,s.name,...ls.map(l=>{const m=(l.marks||{})[s.id]||{};return (typeof m.s==="number"?String(m.s):"")+(m.w?"✓":"")+(lvl(m)?" "+"!".repeat(lvl(m)):"")})]);
+      const ws=XLSX.utils.aoa_to_sheet([[c.name+" — "+(c.scale||5)+" ballik tizim.  ✓ = konspekt, ! / !! / !!! = intizom (ogohlantirish / jiddiy / qo'pol)"],head,topics,...body]);
+      ws["!cols"]=[{wch:4},{wch:28},...ls.map(()=>({wch:9}))];
       XLSX.utils.book_append_sheet(wb,ws,sheetName(c.name));
     });
     // 3. Barcha yozuvlar (to'liq ma'lumot)
-    const all=[["Sana","Sinf","Mavzu","O'quvchi","Keldi","Yozdi","Ball","Tizim"]];
-    [...lessons.values()].sort((a,b)=>a.date.localeCompare(b.date)).forEach(l=>{const c=classes.get(l.classId);if(!c||isEmptyLesson(l))return;
-      students(c).forEach(s=>{const m=(l.marks||{})[s.id]||{};all.push([l.date,c.name,l.topic||"",s.name,m.a?"yo'q":"ha",m.w?"ha":"",typeof m.s==="number"?m.s:"",c.scale||5])})});
-    const wsA=XLSX.utils.aoa_to_sheet(all);wsA["!cols"]=[{wch:11},{wch:7},{wch:30},{wch:28},{wch:6},{wch:6},{wch:5},{wch:6}];
+    const all=[["Sana","Dars","Sinf","Mavzu","O'quvchi","Konspekt","Baho","Intizom","Tizim"]];
+    [...lessons.values()].sort(byDate).forEach(l=>{const c=classes.get(l.classId);if(!c||isEmptyLesson(l))return;
+      students(c).forEach(s=>{const m=(l.marks||{})[s.id]||{};all.push([l.date,lnum(l),c.name,l.topic||"",s.name,m.w?"ha":"",typeof m.s==="number"?m.s:"",LEVELS[lvl(m)],c.scale||5])})});
+    const wsA=XLSX.utils.aoa_to_sheet(all);wsA["!cols"]=[{wch:11},{wch:5},{wch:7},{wch:30},{wch:28},{wch:9},{wch:5},{wch:13},{wch:6}];
     XLSX.utils.book_append_sheet(wb,wsA,"Barcha yozuvlar");
     // 4. O'quvchilar ro'yxati
     const st=[["Sinf","№","O'quvchi","Tizim"]];cls.forEach(c=>students(c).forEach((s,i)=>st.push([c.name,i+1,s.name,c.scale||5])));
