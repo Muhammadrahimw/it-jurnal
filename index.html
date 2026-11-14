@@ -293,9 +293,12 @@ function renderRoster(){
   document.getElementById("stats").innerHTML=`<div class="stat-line"><span>Konspekt <b>${wrote}/${list.length}</b></span><span>O'rtacha baho <b>${avg}</b> / ${n}</span>${dis?`<span>Intizom <b class="bad">${dis}</b></span>`:""}</div>
     <div class="bulk"><button class="btn" data-act="all-wrote">${list.length&&wrote===list.length?"Konspekt belgilarini olib tashlash":"Barchasiga konspekt belgilash"}</button></div>`;
   // lessons on this day
-  const nums=[...new Set([...lessons.values()].filter(l=>l.classId===S.classId&&l.date===S.date&&!isEmptyLesson(l)).map(lnum).concat(S.n))].sort((a,b)=>a-b);
-  document.getElementById("lessonSlots").innerHTML=nums.map(k=>`<button class="chip" data-act="pick-n" data-n="${k}" aria-pressed="${k===S.n}">${k}-dars</button>`).join("")+
-    `<button class="chip ghost" data-act="pick-n" data-n="${Math.max(...nums)+1}">+ Qo'shimcha dars</button>`;
+  const saved=[...lessons.values()].filter(l=>l.classId===S.classId&&l.date===S.date&&!isEmptyLesson(l)).map(lnum);
+  const nums=[...new Set(saved.concat(S.n))].sort((a,b)=>a-b);
+  const next=(saved.length?Math.max(...saved):0)+1; // faqat to'ldirilgan darslardan keyin bitta yangi
+  const canAdd=!nums.includes(next);
+  document.getElementById("lessonSlots").innerHTML=nums.map(k=>`<button class="chip" data-act="pick-n" data-n="${k}" aria-pressed="${k===S.n}">${k}-dars${saved.includes(k)?"":" · yangi"}</button>`).join("")+
+    (canAdd?`<button class="chip ghost" data-act="pick-n" data-n="${next}">+ Qo'shimcha dars</button>`:"");
   // month lessons
   const ym=S.date.slice(0,7);
   const ms=[...lessons.values()].filter(l=>l.classId===S.classId&&l.date.startsWith(ym)&&!isEmptyLesson(l)).sort((a,b)=>byDate(b,a));
