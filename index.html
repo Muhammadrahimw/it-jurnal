@@ -55,6 +55,8 @@ textarea{resize:vertical;min-height:110px;line-height:1.5}
 .stat-line b{font-family:var(--f-num);color:var(--ink);font-weight:700}
 .bulk{display:grid;grid-template-columns:1fr;gap:8px}
 .bad{color:var(--bad);font-weight:700}
+.calc{display:block;font:500 11px var(--f-num);color:var(--muted);margin-top:2px;white-space:nowrap}
+.calc0{color:var(--muted)}
 .pill i{font-style:normal;letter-spacing:-1px;margin-right:5px;font-size:9px;vertical-align:1px}
 .pill.lv1{background:color-mix(in srgb,var(--gold) 14%,transparent);border-color:var(--gold);color:var(--gold)}
 .pill.lv2{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
@@ -339,14 +341,14 @@ function renderReyting(){
     ${classChips()}
     <div class="row2"><input type="month" id="month" value="${S.month}" style="max-width:200px" aria-label="Oy"><span class="note">${monthLabel(S.month)} · <b>${R.count}</b> ta dars</span></div>
     ${R.count&&R.rows.length?`<div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>O'quvchi</th><th>Umumiy</th><th>Baho</th><th>Konspekt</th><th>Vazifa (o'rt.)</th><th>Intizom</th></tr></thead>
+      <thead><tr><th>#</th><th>O'quvchi</th><th>Umumiy</th><th>Baho</th><th>Konspekt</th><th>Vazifa (o'rt.)</th><th>Intizom (−%)</th></tr></thead>
       <tbody>${R.rows.map((r,i)=>`<tr class="${i<3&&r.total>0?"top"+(i+1):""}">
         <td><span class="rank">${i+1}</span></td><td>${esc(r.s.name)}</td>
-        <td class="total">${Math.round(r.total)}%</td>
+        <td class="total">${Math.round(r.total)}%${r.dis?`<small class="calc">${Math.round(r.base)}% − ${Math.round(r.base-r.total)}%</small>`:""}</td>
         <td><span class="grade g${grade(r.total)}">${grade(r.total)}</span></td>
         <td>${r.wrote}/${r.held}</td>
         <td>${r.avg==null?"—":r.avg.toFixed(1)+"/"+R.n}</td>
-        <td>${r.dis?`<span class="bad" title="${r.dis} ta holat, jami ${r.pts} daraja">${r.dis}× · −${Math.round(r.base-r.total)}%</span>`:"—"}</td></tr>`).join("")}</tbody></table></div>
+        <td>${r.dis?`<span class="bad">−${Math.round(r.base-r.total)}%</span><small class="calc">${r.dis} ta holat</small>`:`<span class="calc0">0%</span>`}</td></tr>`).join("")}</tbody></table></div>
       <div class="row2"><button class="btn primary" data-act="copy">Telegram uchun nusxalash</button></div>`
     :`<div class="empty"><h2>Bu oy uchun ma'lumot yo'q</h2><p>${esc(c.name)} sinfida ${monthLabel(S.month)} oyida baholangan dars topilmadi. "Dars" bo'limida baholang — reyting shu yerda o'zi yig'iladi.</p></div>`}
     <div class="card backup">
@@ -372,7 +374,7 @@ function renderReyting(){
 function ratingText(){
   const c=classes.get(S.classId),R=computeRating(c,S.month);
   const medal=["🥇","🥈","🥉"];
-  return `${c.name} — ${monthLabel(S.month)} reytingi (${R.count} dars)\n\n`+R.rows.map((r,i)=>`${medal[i]||(i+1)+"."} ${r.s.name} — ${Math.round(r.total)}% (${grade(r.total)})`).join("\n");
+  return `${c.name} — ${monthLabel(S.month)} reytingi (${R.count} dars)\n\n`+R.rows.map((r,i)=>`${medal[i]||(i+1)+"."} ${r.s.name} — ${Math.round(r.total)}% (${grade(r.total)})${r.dis?` · intizom −${Math.round(r.base-r.total)}%`:""}`).join("\n");
 }
 
 /* ---------- classes ---------- */
