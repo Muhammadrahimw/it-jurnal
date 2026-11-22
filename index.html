@@ -55,6 +55,16 @@ textarea{resize:vertical;min-height:110px;line-height:1.5}
 .stat-line b{font-family:var(--f-num);color:var(--ink);font-weight:700}
 .bulk{display:grid;grid-template-columns:1fr;gap:8px}
 .bad{color:var(--bad);font-weight:700}
+.finder{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--hdr,128px));z-index:4;background:var(--bg);padding-block:6px}
+.find-wrap{position:relative;min-width:0}
+.find-wrap input{padding-right:40px}
+.find-wrap input::-webkit-search-cancel-button{display:none}
+.find-x{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
+.sc.full{position:relative;border-color:var(--good)}
+.sc.full::after{content:"";position:absolute;left:50%;bottom:3px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--good)}
+.sc.full.on::after{background:var(--accent-ink)}
+.switchbar{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--hdr,128px));z-index:6;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;font-size:14px}
+.switchbar span{flex:1 1 160px}
 .calc{display:block;font:500 11px var(--f-num);color:var(--muted);margin-top:2px;white-space:nowrap}
 .calc0{color:var(--muted)}
 .pill i{font-style:normal;letter-spacing:-1px;margin-right:5px;font-size:9px;vertical-align:1px}
@@ -102,7 +112,7 @@ tr.top2 .rank,tr.top3 .rank{border:1.5px solid var(--gold);color:var(--gold)}
 .total{font-weight:700;color:var(--accent)}
 .grade{display:inline-block;min-width:24px;padding:2px 6px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-weight:700;text-align:center}
 .grade.g2{background:var(--bad-soft);color:var(--bad)}
-.weights{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.weights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .weights label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
 .weights input{font-family:var(--f-num)}
 .note{font-size:13px;color:var(--muted);margin:0;max-width:65ch}
@@ -149,6 +159,7 @@ label.btn{display:inline-flex;align-items:center}
     </nav>
   </header>
   <div id="banner" class="banner" hidden></div>
+  <div id="switchBar" class="switchbar" hidden></div>
   <main id="main"></main>
 </div>
 <div id="toast" class="toast" hidden></div>
@@ -163,10 +174,10 @@ const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const coll=new Intl.Collator("en",{numeric:true,ignorePunctuation:true,sensitivity:"base"});
 const clone=o=>JSON.parse(JSON.stringify(o));
 
-const S={view:"dars",classId:null,date:today(),n:1,month:today().slice(0,7),loaded:false};
+const S={view:"dars",classId:null,date:today(),n:1,q:"",onlyOpen:false,month:today().slice(0,7),loaded:false};
 const classes=new Map(), lessons=new Map();
-let settings={wW:30,wS:70,wP:5};
-let db=null, armed=null, mode="cloud", pendingImport=null, lastSlot=null;
+let settings={wW:30,wS:70,wP:5,full:92};
+let db=null, armed=null, mode="cloud", pendingImport=null, lastSlot=null, lastTouch=0, pendingSwitch=null;
 const LS="it-jurnal-data-v1";
 /* Haftalik dars jadvali (Google Kalendardan). getDay(): 2=Seshanba … 5=Juma */
 const SCHEDULE={
@@ -183,16 +194,37 @@ function autoPick(){
   if(S.date!==today())return false;
   const sl=currentSlot(),key=sl?sl.join():null;
   if(!key){lastSlot=null;return false}
-  if(key!==lastSlot&&classes.has(sl[2])){lastSlot=key;S.classId=sl[2];S.n=slotN(sl);return true}
+  if(key!==lastSlot&&classes.has(sl[2])){
+    lastSlot=key;
+    if(S.loaded&&Date.now()-lastTouch<120000&&sl[2]!==S.classId){pendingSwitch=sl;showSwitch();return false}
+    S.classId=sl[2];S.n=slotN(sl);pendingSwitch=null;showSwitch();return true}
   return false;
 }
-function persistLocal(){
-  try{localStorage.setItem(LS,JSON.stringify({classes:[...classes.values()],lessons:[...lessons.entries()].filter(([,l])=>!isEmptyLesson(l)),settings}));setStatus("Saqlandi ✓")}
-  catch(e){setStatus("Xatolik");toast("Brauzer xotirasiga saqlab bo'lmadi")}
+function showSwitch(){
+  const bn=document.getElementById("switchBar");if(!bn)return;
+  if(!pendingSwitch){bn.hidden=true;return}
+  bn.hidden=false;bn.innerHTML=`<span>${pendingSwitch[0]} — <b>${esc(classes.get(pendingSwitch[2])?.name||"")}</b> darsi boshlandi</span><button class="btn primary" data-act="do-switch">O'tish</button><button class="btn" data-act="no-switch">Qolish</button>`;
+}
+/* Brauzer xotirasi. Har yozuvda xotiradagi eng yangi nusxa o'qiladi va faqat o'zgargan hujjat almashtiriladi,
+   shuning uchun ikkita ochiq oyna (ilova + Chrome varaqasi) bir-birining ma'lumotini o'chirib yubormaydi. */
+function lsRead(){
+  let d=null;try{d=JSON.parse(localStorage.getItem(LS)||"null")}catch(_){d=null}
+  d=d||{};return {classes:new Map((d.classes||[]).map(c=>[c.id,c])),lessons:new Map(d.lessons||[]),settings:d.settings||{}};
+}
+function lsWrite(st){
+  localStorage.setItem(LS,JSON.stringify({v:2,savedAt:Date.now(),classes:[...st.classes.values()],lessons:[...st.lessons.entries()].filter(([,l])=>!isEmptyLesson(l)),settings:st.settings}));
+}
+function persistLocal(){ // butun holatni birlashtirib yozish (tiklashdan keyin)
+  try{const st=lsRead();classes.forEach((c,id)=>st.classes.set(id,c));lessons.forEach((l,id)=>st.lessons.set(id,l));st.settings={...st.settings,...settings};lsWrite(st);setStatus("Saqlandi ✓")}
+  catch(e){setStatus("Xatolik");toast("Brauzer xotirasiga saqlab bo'lmadi. Darhol Excel zaxira oling.")}
 }
 function loadLocal(){
-  try{const d=JSON.parse(localStorage.getItem(LS)||"null");if(!d)return;
-    (d.classes||[]).forEach(c=>classes.set(c.id,c));(d.lessons||[]).forEach(([id,l])=>lessons.set(id,l));Object.assign(settings,d.settings||{})}catch(_){}
+  const st=lsRead();
+  st.classes.forEach((c,id)=>{if(!dirty("classes/"+id))classes.set(id,c)});
+  [...classes.keys()].forEach(id=>{if(!st.classes.has(id)&&!dirty("classes/"+id))classes.delete(id)});
+  st.lessons.forEach((l,id)=>{if(!dirty("lessons/"+id))lessons.set(id,l)});
+  [...lessons.keys()].forEach(id=>{if(!st.lessons.has(id)&&!dirty("lessons/"+id)&&!isEmptyLesson(lessons.get(id)))lessons.delete(id)});
+  Object.assign(settings,st.settings);
 }
 const main=document.getElementById("main");
 
@@ -200,28 +232,60 @@ function toast(t){const el=document.getElementById("toast");el.textContent=t;el.
 function setStatus(t){document.getElementById("status").textContent=t}
 
 /* ---------- saving: one write at a time per document ---------- */
-const timers={}, busy={}, again={};
+const timers={}, busy={}, again={}, getters={}, touched={};
 function queue(path,getBody,delay=450){
-  clearTimeout(timers[path]);setStatus("Saqlanmoqda…");
+  clearTimeout(timers[path]);getters[path]=getBody;setStatus("Saqlanmoqda…");
+  if(mode==="local"){delete timers[path];flush(path,getBody);return} // xotiraga darhol yoziladi
   timers[path]=setTimeout(()=>{delete timers[path];flush(path,getBody)},delay);
 }
+/* Dars hujjatini birlashtirish: shu qurilmada o'zgartirilgan o'quvchilar va mavzu bizniki,
+   qolganlari saqlangan nusxadan olinadi — boshqa qurilmadagi belgilar o'chib ketmaydi. */
+function mergeLesson(base,local,t){
+  if(!local)return null;
+  if(!base||!t)return local;
+  const out={...base,...local,topic:t.topic?local.topic:(base.topic||local.topic||""),marks:{...(base.marks||{})}};
+  t.sids.forEach(sid=>{const m=(local.marks||{})[sid];if(m&&Object.keys(m).length)out.marks[sid]=m;else delete out.marks[sid]});
+  Object.keys(local.marks||{}).forEach(sid=>{if(!(sid in out.marks)&&!t.sids.has(sid))out.marks[sid]=local.marks[sid]});
+  return out;
+}
 async function flush(path,getBody){
-  if(mode==="local"){persistLocal();return}
+  const isLesson=path.startsWith("lessons/"), id=path.split("/")[1];
+  if(mode==="local"){
+    try{
+      const st=lsRead(), [col]=path.split("/");
+      let body=getBody();
+      if(isLesson){body=mergeLesson(st.lessons.get(id),body,touched[path]);if(body)lessons.set(id,body);if(isEmptyLesson(body))body=null}
+      if(col==="settings")st.settings=body||{};
+      else{const m=col==="classes"?st.classes:st.lessons;if(body){m.set(id,col==="classes"?{...body,id}:body)}else m.delete(id)}
+      lsWrite(st);delete touched[path];setStatus("Saqlandi ✓");
+    }catch(e){setStatus("Xatolik");toast("Brauzer xotirasiga saqlab bo'lmadi. Darhol Excel zaxira oling.")}
+    return;
+  }
   if(!db){setStatus("Saqlanmadi");return}
   if(busy[path]){again[path]=getBody;return}
   busy[path]=true;
-  try{const body=getBody();if(body)await db.doc(path).set(body);else await db.doc(path).delete();setStatus("Saqlandi ✓")}
-  catch(e){setStatus("Xatolik");toast(e&&e.code==="quota_exceeded"?"Joy to'ldi: eski darslarni o'chiring":"Saqlab bo'lmadi. Internetni tekshiring.")}
+  try{
+    let body=getBody();
+    if(isLesson&&touched[path]){const t=touched[path];delete touched[path];
+      const snap=await db.doc(path).get();body=mergeLesson(snap.exists?snap.data():null,body,t);
+      if(body)lessons.set(id,clone(body))}
+    if(isLesson&&isEmptyLesson(body))body=null;
+    if(body)await db.doc(path).set(body);else await db.doc(path).delete();setStatus("Saqlandi ✓");
+  }catch(e){setStatus("Xatolik");toast(e&&e.code==="quota_exceeded"?"Joy to'ldi: eski darslarni o'chiring":"Saqlab bo'lmadi. Internetni tekshiring.")}
   busy[path]=false;
   if(again[path]){const g=again[path];delete again[path];flush(path,g)}
 }
+function flushAll(){Object.keys(timers).forEach(p=>{clearTimeout(timers[p]);delete timers[p];flush(p,getters[p])})}
 const dirty=path=>!!(timers[path]||busy[path]);
+function touch(sid){const p="lessons/"+lessonId(S.classId,S.date,S.n);(touched[p]||(touched[p]={sids:new Set(),topic:false}));if(sid==="topic")touched[p].topic=true;else touched[p].sids.add(sid)}
 
 /* ---------- data helpers ---------- */
 function sortedClasses(){return [...classes.values()].sort((a,b)=>coll.compare(a.name,b.name))}
 function students(c){return [...(c?.students||[])].sort((a,b)=>coll.compare(a.name,b.name))}
 const lessonId=(cid,date,n)=>cid+"_"+date+((n||1)>1?"_"+n:"");
 const lnum=l=>l.n||1;
+const FULL=5; // to'liq bajarilgan vazifa bali (10 ballik tizimda ham)
+const norm=t=>String(t||"").toLowerCase().replace(/[’'ʻʼ`‘\s-]/g,"").replace(/x/g,"h");
 /* Intizom darajalari: har bosishda keyingisiga o'tadi */
 const LEVELS=["","Ogohlantirish","Jiddiy","Qo'pol"];
 const lvl=m=>Math.min(3,Math.max(0,+m.d||0));
@@ -236,7 +300,7 @@ function saveLesson(){
   const id=lessonId(S.classId,S.date,S.n);
   queue("lessons/"+id,()=>{const l=lessons.get(id);if(!l)return null;
     Object.keys(l.marks||{}).forEach(k=>{if(!Object.keys(l.marks[k]).length)delete l.marks[k]});
-    return isEmptyLesson(l)?null:l});
+    return l}); // bo'shligi birlashtirilgandan keyin tekshiriladi
 }
 function saveClass(c){queue("classes/"+c.id,()=>classes.get(c.id)?{name:c.name,scale:c.scale,students:c.students}:null,300)}
 function saveSettings(){queue("settings/main",()=>({...settings}),600)}
@@ -267,6 +331,10 @@ function renderDars(){
     </div>
     <div class="chips" id="lessonSlots" role="group" aria-label="Shu kundagi dars"></div>
     <div class="stats" id="stats"></div>
+    <div class="finder">
+      <div class="find-wrap"><input type="search" id="find" placeholder="O'quvchini qidirish: ism yoki familiya" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search" aria-label="O'quvchini qidirish"><button type="button" class="find-x" data-act="clear-find" aria-label="Qidiruvni tozalash" ${S.q?"":"hidden"}>×</button></div>
+      <button type="button" class="chip" data-act="only-open" aria-pressed="${S.onlyOpen}">Baholanmaganlar</button>
+    </div>
     <ol class="roster" id="roster"></ol>
     <form class="add" id="addStu" autocomplete="off">
       <input type="text" id="newStu" placeholder="Yangi o'quvchi: Ism Familiya" aria-label="Yangi o'quvchi">
@@ -280,14 +348,17 @@ function renderRoster(){
   const c=classes.get(S.classId);if(!c)return;
   const L=getLesson(false), M=L?.marks||{}, list=students(c), n=c.scale||5;
   const roster=document.getElementById("roster");if(!roster)return;
-  roster.innerHTML=list.length?list.map((s,i)=>{
+  const nq=norm(S.q);
+  const shown=list.map((s,i)=>[s,i]).filter(([s])=>(!nq||norm(s.name).includes(nq))&&(!S.onlyOpen||typeof (M[s.id]||{}).s!=="number"));
+  roster.innerHTML=!list.length?"":!shown.length?`<li class="row"><span></span><span class="name" style="color:var(--muted)">${S.onlyOpen&&!nq?"Hamma o'quvchi baholandi ✓":"Bunday o'quvchi topilmadi"}</span></li>`:shown.map(([s,i])=>{
     const m=M[s.id]||{};
     return `<li class="row" data-sid="${s.id}">
       <span class="num">${i+1}</span><span class="name">${esc(s.name)}</span>
       <button class="pill lv${lvl(m)}" data-act="disrupt" aria-label="Intizom: ${LEVELS[lvl(m)]||"qoidabuzarlik yo'q"}. Keyingi darajaga o'tkazish">${lvl(m)?`<i>${"●".repeat(lvl(m))}</i>${LEVELS[lvl(m)]}`:"Intizom"}</button>
       <button class="pill ${m.w?"on":""}" data-act="wrote" aria-pressed="${!!m.w}">${m.w?"✓ Konspekt":"Konspekt"}</button>
-      <div class="scores" style="--n:${n}">${Array.from({length:n},(_,k)=>k+1).map(v=>`<button class="sc${m.s===v?" on":""}" data-act="score" data-v="${v}" aria-label="${v} ball">${v}</button>`).join("")}</div>
-    </li>`}).join(""):`<li class="row"><span></span><span class="name" style="color:var(--muted)">Bu sinfda hali o'quvchi yo'q — pastdan qo'shing.</span></li>`;
+      <div class="scores" style="--n:${n}">${Array.from({length:n},(_,k)=>k+1).map(v=>`<button class="sc${m.s===v?" on":""}${v===FULL&&n>FULL?" full":""}" data-act="score" data-v="${v}" aria-label="${v} ball${v===FULL?", to'liq bajarilgan":""}">${v}</button>`).join("")}</div>
+    </li>`}).join("");
+  if(!list.length)roster.innerHTML=`<li class="row"><span></span><span class="name" style="color:var(--muted)">Bu sinfda hali o'quvchi yo'q — pastdan qo'shing.</span></li>`;
   // stats
   const wrote=list.filter(s=>M[s.id]?.w).length, dis=list.filter(s=>M[s.id]?.d).length;
   const sc=list.map(s=>M[s.id]?.s).filter(v=>typeof v==="number");
@@ -324,8 +395,11 @@ function computeRating(c,ym){
       const taskGiven=Object.values(M).some(x=>typeof x.s==="number");
       if(taskGiven){ptsCnt++;ptsSum+=typeof m.s==="number"?m.s:0}
     }
-    const wr=held?wrote/held:0, sc=ptsCnt?ptsSum/ptsCnt/n:0;
-    const base=held?(wW*wr+wS*sc)/W*100:0;
+    const avg=ptsCnt?ptsSum/ptsCnt:0, full=Math.min(100,Math.max(1,+(settings.full??92)||92));
+    const wr=held?wrote/held:0, sc=Math.min(1,avg/FULL);
+    // 5 ball = to'liq vazifa. Konspekt + to'liq vazifa = full% (92%). 5 dan yuqori ballar 100% gacha qo'shimcha beradi.
+    const bonus=n>FULL&&avg>FULL?(avg-FULL)/(n-FULL)*(100-full):0;
+    const base=held?Math.min(100,(wW*wr+wS*sc)/W*full+bonus):0;
     const total=Math.max(0,base-wP*pts);
     return {s,held,wrote,dis,pts,avg:ptsCnt?ptsSum/ptsCnt:null,base,total};
   }).sort((a,b)=>b.total-a.total||coll.compare(a.s.name,b.s.name));
@@ -356,7 +430,7 @@ function renderReyting(){
       <p class="note">Barcha sinflar, har bir dars bo'yicha baholar va tanlangan oy reytingi bitta .xlsx faylga yig'iladi. ${lastBackup()?"Oxirgi zaxira: <b>"+esc(lastBackup())+"</b>.":"Hali zaxira olinmagan."}</p>
       <div class="row2"><button class="btn primary" data-act="export" id="exportBtn">Excel'ga yuklab olish</button>
         <label class="btn" for="importFile">Zaxiradan tiklash</label><input type="file" id="importFile" accept=".xlsx" hidden></div>
-      ${pendingImport?`<div class="confirm"><span>Faylda <b>${pendingImport.classes.length}</b> sinf va <b>${pendingImport.lessons.length}</b> ta dars bor. Ular jurnalga qo'shiladi, bir xil sinf va kunlar fayldagisi bilan almashtiriladi.</span>
+      ${pendingImport?`<div class="confirm"><span>Faylda <b>${pendingImport.classes.length}</b> sinf va <b>${pendingImport.lessons.length}</b> ta dars bor. Jurnalda yo'q o'quvchilar va baholar qaytariladi; hozirgi ma'lumotlar o'zgarmaydi.</span>
         <div class="row2"><button class="btn primary" data-act="import-yes">Ha, tiklash</button><button class="btn" data-act="import-no">Bekor qilish</button></div></div>`:""}
       ${mode==="local"?`<p class="note">Bu nusxa ma'lumotlarni faqat shu brauzerda saqlaydi. Brauzer tarixi tozalansa ular o'chadi — Excel zaxirani muntazam oling.</p>`:""}
     </div>
@@ -366,8 +440,9 @@ function renderReyting(){
         <label>Konspekt ulushi<input type="number" min="0" max="100" id="wW" value="${settings.wW}"></label>
         <label>Amaliy vazifa ulushi<input type="number" min="0" max="100" id="wS" value="${settings.wS}"></label>
         <label>Intizom: 1 daraja = −%<input type="number" min="0" max="100" id="wP" value="${settings.wP??5}"></label>
+        <label>To'liq vazifa (5 ball) = %<input type="number" min="1" max="100" id="full" value="${settings.full??92}"></label>
       </div>
-      <p class="note">Konspekt va amaliy vazifa natijasi foizga aylantirilib, shu ulushlar bo'yicha qo'shiladi. Intizom buzilishi darajasiga qarab ayriladi: Ogohlantirish — 1 baravar, Jiddiy — 2 baravar, Qo'pol — 3 baravar (5% bo'lsa: −5%, −10%, −15%). Natija 0% dan pastga tushmaydi. Vazifa berilgan darsda ball olmagan o'quvchiga 0 hisoblanadi; vazifa berilmagan dars ballga ta'sir qilmaydi. Baho: 86%+ → 5, 71%+ → 4, 56%+ → 3.</p>
+      <p class="note"><b>5 ball — vazifa to'liq bajarilgan</b> (10 ballik tizimda ham). Konspekt yozgan va vazifani to'liq bajargan o'quvchi ${settings.full??92}% oladi; 5 dan yuqori ballar uni 100% gacha ko'taradi (10 ball = 100%). Konspekt va vazifa shu ulushlar bo'yicha qo'shiladi. Intizom buzilishi darajasiga qarab ayriladi: Ogohlantirish — 1 baravar, Jiddiy — 2 baravar, Qo'pol — 3 baravar (5% bo'lsa: −5%, −10%, −15%). Natija 0% dan pastga tushmaydi. Vazifa berilgan darsda ball olmagan o'quvchiga 0 hisoblanadi; vazifa berilmagan dars ballga ta'sir qilmaydi. Baho: 86%+ → 5, 71%+ → 4, 56%+ → 3.</p>
     </div>
   </div>`;
 }
@@ -405,11 +480,19 @@ function parseNames(t){return t.split(/\r?\n/).map(x=>x.replace(/^\s*\d+[\.\)]\s
 
 /* ---------- events ---------- */
 document.querySelector("nav.views").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;S.view=b.dataset.view;armed=null;render()});
+document.addEventListener("pointerdown",()=>{lastTouch=Date.now()},true);
+document.getElementById("switchBar").addEventListener("click",e=>{
+  const b=e.target.closest("[data-act]");if(!b)return;
+  if(b.dataset.act==="do-switch"&&pendingSwitch){S.classId=pendingSwitch[2];S.n=slotN(pendingSwitch);S.date=today();S.q="";S.view="dars"}
+  pendingSwitch=null;showSwitch();render();
+});
 main.addEventListener("click",e=>{
   const b=e.target.closest("[data-act]");if(!b)return;
   const act=b.dataset.act;
+  if(act==="clear-find"){S.q="";const f=document.getElementById("find");f.value="";b.hidden=true;renderRoster();f.focus();return}
+  if(act==="only-open"){S.onlyOpen=!S.onlyOpen;b.setAttribute("aria-pressed",S.onlyOpen);renderRoster();return}
   if(act==="go"){S.view=b.dataset.v;render();return}
-  if(act==="pick-class"){S.classId=b.dataset.id;S.n=+b.dataset.n||1;render();return}
+  if(act==="pick-class"){if(S.classId!==b.dataset.id)S.q="";S.classId=b.dataset.id;S.n=+b.dataset.n||1;if(pendingSwitch&&pendingSwitch[2]===S.classId){pendingSwitch=null;showSwitch()}render();return}
   if(act==="pick-date"){S.date=b.dataset.v;S.n=+b.dataset.n||1;render();return}
   if(act==="pick-n"){S.n=+b.dataset.n||1;render();return}
   if(act==="export"){exportExcel(b);return}
@@ -420,7 +503,7 @@ main.addEventListener("click",e=>{
   const row=b.closest(".row[data-sid]");
   if(row){
     const L=getLesson(true), sid=row.dataset.sid, m=L.marks[sid]||(L.marks[sid]={});
-    delete m.a;
+    delete m.a;touch(sid);
     if(act==="disrupt"){const v=(lvl(m)+1)%4;if(v)m.d=v;else delete m.d}
     if(act==="wrote")m.w=m.w?0:1;
     if(act==="score"){const v=+b.dataset.v;if(m.s===v)delete m.s;else m.s=v}
@@ -430,7 +513,7 @@ main.addEventListener("click",e=>{
   if(act==="all-wrote"){
     const c=classes.get(S.classId),L=getLesson(true),list=students(c);
     const all=list.every(s=>L.marks[s.id]?.w);
-    list.forEach(s=>{const m=L.marks[s.id]||(L.marks[s.id]={});delete m.a;if(all)delete m.w;else m.w=1});
+    list.forEach(s=>{const m=L.marks[s.id]||(L.marks[s.id]={});delete m.a;touch(s.id);if(all)delete m.w;else m.w=1});
     saveLesson();renderRoster();return;
   }
   const card=b.closest("[data-cid]");
@@ -455,13 +538,14 @@ main.addEventListener("change",e=>{
   if(t.id==="date"&&t.value){S.date=t.value;S.n=1;render()}
   if(t.id==="month"&&t.value){S.month=t.value;render()}
   if((t.id==="importFile"||t.id==="importFile0")&&t.files[0]){readImport(t.files[0]);t.value=""}
-  if(["wW","wS","wP"].includes(t.id)){settings[t.id]=Math.max(0,Math.min(100,+t.value||0));saveSettings();renderReyting()}
+  if(["wW","wS","wP","full"].includes(t.id)){settings[t.id]=Math.max(t.id==="full"?1:0,Math.min(100,+t.value||0));saveSettings();renderReyting()}
   if(t.dataset.act==="rename-stu"){const c=classes.get(t.closest("[data-cid]").dataset.cid);const s=c?.students.find(x=>x.id===t.dataset.sid);const v=t.value.replace(/\s+/g," ").trim();
     if(s&&v&&v!==s.name){s.name=v;saveClass(c);t.closest(".stu-row").classList.toggle("unsure",/\?/.test(v));toast("Saqlandi: "+v)}else if(s&&!v)t.value=s.name}
   if(t.dataset.act==="rename"){const c=classes.get(t.closest("[data-cid]").dataset.cid);const v=t.value.trim();if(c&&v){c.name=v;saveClass(c)}}
 });
 main.addEventListener("input",e=>{
-  if(e.target.id==="topic"){const L=getLesson(true);L.topic=e.target.value;saveLesson()}
+  if(e.target.id==="topic"){const L=getLesson(true);L.topic=e.target.value;touch("topic");saveLesson()}
+  if(e.target.id==="find"){S.q=e.target.value;const x=document.querySelector(".find-x");if(x)x.hidden=!S.q;renderRoster()}
 });
 main.addEventListener("submit",e=>{
   e.preventDefault();
@@ -541,14 +625,20 @@ async function readImport(file){
 }
 async function applyImport(){
   const d=pendingImport;pendingImport=null;if(!d)return;
-  d.classes.forEach(c=>classes.set(c.id,c));d.lessons.forEach(([id,l])=>lessons.set(id,l));Object.assign(settings,d.settings||{});
+  // Birlashtirish: hozirgi ma'lumot ustun, zaxiradan faqat yo'qolganlari qaytadi
+  d.classes.forEach(bc=>{const cur=classes.get(bc.id);if(!cur){classes.set(bc.id,bc);return}
+    const have=new Set(cur.students.map(s=>s.id));cur.students=cur.students.concat((bc.students||[]).filter(s=>!have.has(s.id)))});
+  d.lessons.forEach(([id,bl])=>{const cur=lessons.get(id);
+    if(!cur||isEmptyLesson(cur)){lessons.set(id,bl);return}
+    lessons.set(id,{...bl,...cur,topic:cur.topic||bl.topic||"",marks:{...(bl.marks||{}),...(cur.marks||{})}})});
+  Object.assign(settings,{...(d.settings||{}),...settings});
   if(!classes.has(S.classId))S.classId=sortedClasses()[0]?.id||null;
   render();
   if(mode==="local"){persistLocal();toast("Zaxira tiklandi");return}
   setStatus("Tiklanmoqda…");
   try{
-    for(const c of d.classes){const {id,...b}=c;await db.doc("classes/"+id).set(b)}
-    for(const [id,l] of d.lessons)await db.doc("lessons/"+id).set(l);
+    for(const c of d.classes){const cur=classes.get(c.id);await db.doc("classes/"+c.id).set({name:cur.name,scale:cur.scale,students:cur.students})}
+    for(const [id] of d.lessons)await db.doc("lessons/"+id).set(lessons.get(id));
     await db.doc("settings/main").set({...settings});
     setStatus("Saqlandi ✓");toast("Zaxira tiklandi");
   }catch(_){setStatus("Xatolik");toast("Tiklash to'liq tugamadi. Qayta urinib ko'ring.")}
@@ -575,6 +665,13 @@ async function applyImport(){
   },onErr);
   db.doc("settings/main").onSnapshot(d=>{if(d.exists&&!dirty("settings/main")){settings={...settings,...d.data()};if(S.loaded&&S.view==="reyting")refresh()}},()=>{});
 })();
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden"){flushAll();return}
+  if(mode==="local"&&S.loaded){loadLocal();refresh()}
+  if(S.loaded&&autoPick())render();
+});
+window.addEventListener("pagehide",flushAll);
+window.addEventListener("storage",e=>{if(e.key===LS&&mode==="local"&&S.loaded){loadLocal();refresh()}});
 setInterval(()=>{if(!S.loaded||S.view!=="dars")return;const a=document.activeElement;if(a&&a.matches&&a.matches("input,textarea"))return;if(autoPick())render()},15000);
 function refresh(){
   const a=document.activeElement;
@@ -586,6 +683,8 @@ function refresh(){
   if(a&&a.matches&&a.matches("input,textarea"))return;
   render();
 }
+function setHdr(){const h=document.querySelector("header.top");if(h)document.documentElement.style.setProperty("--hdr",h.offsetHeight+"px")}
+window.addEventListener("resize",setHdr);setHdr();
 render();
 </script>
 <script>if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
