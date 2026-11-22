@@ -45,7 +45,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .chip.ghost{color:var(--accent);border-style:dashed}
 .lesson-head{display:grid;grid-template-columns:auto 1fr;gap:8px}
-input[type=text],input[type=date],input[type=month],input[type=number],select,textarea{
+input[type=text],input[type=search],input[type=date],input[type=month],input[type=number],select,textarea{
   font:500 15px var(--f-body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;width:100%}
 input[type=date],input[type=month]{font-family:var(--f-num);font-size:14px}
 textarea{resize:vertical;min-height:110px;line-height:1.5}
@@ -57,7 +57,12 @@ textarea{resize:vertical;min-height:110px;line-height:1.5}
 .bad{color:var(--bad);font-weight:700}
 .finder{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--hdr,128px));z-index:4;background:var(--bg);padding-block:6px}
 .find-wrap{position:relative;min-width:0}
-.find-wrap input{padding-right:40px}
+.find-wrap input{padding:11px 42px 11px 40px;border-radius:12px;-webkit-appearance:none;appearance:none;background:var(--surface);box-shadow:0 1px 0 var(--line)}
+.find-wrap input:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
+.find-wrap input::placeholder{color:var(--muted)}
+.find-ico{position:absolute;left:12px;top:50%;width:18px;height:18px;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.find-wrap:focus-within .find-ico{color:var(--accent)}
+.finder .chip{padding:10px 14px}
 .find-wrap input::-webkit-search-cancel-button{display:none}
 .find-x{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}
 .sc.full{position:relative;border-color:var(--good)}
@@ -332,7 +337,7 @@ function renderDars(){
     <div class="chips" id="lessonSlots" role="group" aria-label="Shu kundagi dars"></div>
     <div class="stats" id="stats"></div>
     <div class="finder">
-      <div class="find-wrap"><input type="search" id="find" placeholder="O'quvchini qidirish: ism yoki familiya" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search" aria-label="O'quvchini qidirish"><button type="button" class="find-x" data-act="clear-find" aria-label="Qidiruvni tozalash" ${S.q?"":"hidden"}>×</button></div>
+      <div class="find-wrap"><svg class="find-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" id="find" placeholder="O'quvchini qidirish" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search" aria-label="O'quvchini qidirish"><button type="button" class="find-x" data-act="clear-find" aria-label="Qidiruvni tozalash" ${S.q?"":"hidden"}>×</button></div>
       <button type="button" class="chip" data-act="only-open" aria-pressed="${S.onlyOpen}">Baholanmaganlar</button>
     </div>
     <ol class="roster" id="roster"></ol>
