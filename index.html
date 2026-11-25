@@ -406,7 +406,7 @@ function computeRating(c,ym){
     const bonus=n>FULL&&avg>FULL?(avg-FULL)/(n-FULL)*(100-full):0;
     const base=held?Math.min(100,(wW*wr+wS*sc)/W*full+bonus):0;
     const total=Math.max(0,base-wP*pts);
-    return {s,held,wrote,dis,pts,avg:ptsCnt?ptsSum/ptsCnt:null,base,total};
+    return {s,held,wrote,dis,pts,pen:wP*pts,avg:ptsCnt?ptsSum/ptsCnt:null,base,total};
   }).sort((a,b)=>b.total-a.total||coll.compare(a.s.name,b.s.name));
   return {rows,count:ls.length,n};
 }
@@ -423,11 +423,11 @@ function renderReyting(){
       <thead><tr><th>#</th><th>O'quvchi</th><th>Umumiy</th><th>Baho</th><th>Konspekt</th><th>Vazifa (o'rt.)</th><th>Intizom (−%)</th></tr></thead>
       <tbody>${R.rows.map((r,i)=>`<tr class="${i<3&&r.total>0?"top"+(i+1):""}">
         <td><span class="rank">${i+1}</span></td><td>${esc(r.s.name)}</td>
-        <td class="total">${Math.round(r.total)}%${r.dis?`<small class="calc">${Math.round(r.base)}% − ${Math.round(r.base-r.total)}%</small>`:""}</td>
+        <td class="total">${Math.round(r.total)}%${r.dis?`<small class="calc">${Math.round(r.base)}% − ${Math.round(r.pen)}%</small>`:""}</td>
         <td><span class="grade g${grade(r.total)}">${grade(r.total)}</span></td>
         <td>${r.wrote}/${r.held}</td>
         <td>${r.avg==null?"—":r.avg.toFixed(1)+"/"+R.n}</td>
-        <td>${r.dis?`<span class="bad">−${Math.round(r.base-r.total)}%</span><small class="calc">${r.dis} ta holat</small>`:`<span class="calc0">0%</span>`}</td></tr>`).join("")}</tbody></table></div>
+        <td>${r.dis?`<span class="bad">−${Math.round(r.pen)}%</span><small class="calc">${r.dis} ta holat</small>`:`<span class="calc0">0%</span>`}</td></tr>`).join("")}</tbody></table></div>
       <div class="row2"><button class="btn primary" data-act="copy">Telegram uchun nusxalash</button></div>`
     :`<div class="empty"><h2>Bu oy uchun ma'lumot yo'q</h2><p>${esc(c.name)} sinfida ${monthLabel(S.month)} oyida baholangan dars topilmadi. "Dars" bo'limida baholang — reyting shu yerda o'zi yig'iladi.</p></div>`}
     <div class="card backup">
@@ -454,7 +454,7 @@ function renderReyting(){
 function ratingText(){
   const c=classes.get(S.classId),R=computeRating(c,S.month);
   const medal=["🥇","🥈","🥉"];
-  return `${c.name} — ${monthLabel(S.month)} reytingi (${R.count} dars)\n\n`+R.rows.map((r,i)=>`${medal[i]||(i+1)+"."} ${r.s.name} — ${Math.round(r.total)}% (${grade(r.total)})${r.dis?` · intizom −${Math.round(r.base-r.total)}%`:""}`).join("\n");
+  return `${c.name} — ${monthLabel(S.month)} reytingi (${R.count} dars)\n\n`+R.rows.map((r,i)=>`${medal[i]||(i+1)+"."} ${r.s.name} — ${Math.round(r.total)}% (${grade(r.total)})${r.dis?` · intizom −${Math.round(r.pen)}%`:""}`).join("\n");
 }
 
 /* ---------- classes ---------- */
@@ -577,7 +577,7 @@ async function exportExcel(btn){
     const wb=XLSX.utils.book_new(), cls=sortedClasses();
     // 1. Reyting (tanlangan oy, barcha sinflar)
     const rRows=[["Sinf","O'rin","O'quvchi","Umumiy %","Baho","Darslar","Konspekt","Vazifa (o'rtacha)","Intizom holatlari","Intizom (−%)"]];
-    cls.forEach(c=>{const R=computeRating(c,S.month);R.rows.forEach((r,i)=>rRows.push([c.name,i+1,r.s.name,Math.round(r.total),R.count?grade(r.total):"",r.held,r.wrote,r.avg==null?"":+r.avg.toFixed(2),r.dis||"",r.dis?Math.round(r.base-r.total):""]))});
+    cls.forEach(c=>{const R=computeRating(c,S.month);R.rows.forEach((r,i)=>rRows.push([c.name,i+1,r.s.name,Math.round(r.total),R.count?grade(r.total):"",r.held,r.wrote,r.avg==null?"":+r.avg.toFixed(2),r.dis||"",r.dis?Math.round(r.pen):""]))});
     const wsR=XLSX.utils.aoa_to_sheet([["Reyting — "+monthLabel(S.month)],[],...rRows]);
     wsR["!cols"]=[{wch:8},{wch:6},{wch:28},{wch:10},{wch:6},{wch:8},{wch:9},{wch:15},{wch:16},{wch:12}];
     XLSX.utils.book_append_sheet(wb,wsR,"Reyting");
